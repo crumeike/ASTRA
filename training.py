@@ -230,15 +230,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         model.load_state_dict(best_model_state)
         optimizer.load_state_dict(best_optimizer_state)
     
-    # Final validation with best model
-    val_loss, val_acc, val_precision, val_recall, val_f1, top1_error, top2_error, conf_matrix, class_report = validate_epoch(
-        model, val_loader, criterion, device, num_classes)
+    # # Final validation with best model
+    # val_loss, val_acc, val_precision, val_recall, val_f1, top1_error, top2_error, conf_matrix, class_report = validate_epoch(
+    #     model, val_loader, criterion, device, num_classes)
     
-    print("\nBest model performance:")
-    print(f"Validation Accuracy: {val_acc:.4f}")
-    print(f"Validation F1 Score: {val_f1:.4f}")
-    print(f"Top-1 Error: {top1_error:.4f}")
-    print(f"Top-2 Error: {top2_error:.4f}")
+    # print("\nBest model performance:")
+    # print(f"Validation Accuracy: {val_acc:.4f}")
+    # print(f"Validation F1 Score: {val_f1:.4f}")
+    # print(f"Top-1 Error: {top1_error:.4f}")
+    # print(f"Top-2 Error: {top2_error:.4f}")
     
     return model, optimizer, conf_matrix, class_report
 

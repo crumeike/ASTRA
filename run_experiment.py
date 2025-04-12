@@ -179,7 +179,7 @@ def collect_results(results_dir):
     df = df.sort_values("val_f1", ascending=False)
     
     # Save results
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     results_file = os.path.join(results_dir, f"experiment_results_{timestamp}.csv")
     df.to_csv(results_file, index=False)
     
@@ -214,6 +214,12 @@ def collect_results(results_dir):
 def main():
     """Main function to run experiments."""
     args = parse_args()
+
+    # Create a timestamped output directory
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    args.results_dir = os.path.join(args.results_dir, timestamp)
+    os.makedirs(args.results_dir, exist_ok=True)
     
     # Load experiment configurations
     experiments = load_experiment_configs(args.config_file)

@@ -53,29 +53,42 @@ The framework expects the dataset to be organized as follows:
 ```
 data/
 ├── train/
-│   ├── no_damage/
+│   ├── undamaged/
 │   │   ├── image1.jpg
 │   │   └── ...
-│   ├── minor_damage/
+│   ├── slight/
 │   │   ├── image1.jpg
 │   │   └── ...
-│   ├── major_damage/
+│   ├── moderate/
 │   │   ├── image1.jpg
 │   │   └── ...
-│   └── destroyed/
+│   └── extensive/
 │       ├── image1.jpg
 │       └── ...
 └── val/
-    ├── no_damage/
+│   ├── undamaged/
+│   │   ├── image1.jpg
+│   │   └── ...
+│   ├── slight/
+│   │   ├── image1.jpg
+│   │   └── ...
+│   ├── moderate/
+│   │   ├── image1.jpg
+│   │   └── ...
+│   └── extensive/
+│       ├── image1.jpg
+│       └── ...
+└── test/
+    ├── undamaged/
     │   ├── image1.jpg
     │   └── ...
-    ├── minor_damage/
+    ├── slight/
     │   ├── image1.jpg
     │   └── ...
-    ├── major_damage/
+    ├── moderate/
     │   ├── image1.jpg
     │   └── ...
-    └── destroyed/
+    └── extensive/
         ├── image1.jpg
         └── ...
 ```

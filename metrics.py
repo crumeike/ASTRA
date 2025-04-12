@@ -31,6 +31,7 @@ def calculate_flops(model, input_size=(3, 224, 224), device="cuda"):
     except ImportError:
         print("thop package not installed. Install with 'pip install thop' to calculate FLOPs.")
         # Rough estimate based on parameters
+        print("Calculating FLOPs based on parameters only.")
         params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         # Rough estimate: ~2 FLOPs per parameter per forward pass
         flops = params * 2
