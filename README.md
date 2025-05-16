@@ -312,3 +312,20 @@ The framework automatically aggregates results from all completed experiments, g
 - Ordinal accuracy metrics for damage assessment applications
 
 This resumable design ensures that no computational resources are wasted on repeated experiments and that large-scale studies can be conducted reliably even in environments with limited runtime constraints.
+
+## Citation
+
+If you use this framework in your research, please cite:
+
+```
+@article{yourarticle2025,
+  title={Experimental Framework for Post-Tornado Damage Recognition},
+  author={Your Name},
+  journal={Journal Name},
+  year={2025}
+}
+```
+
+## License
+
+This project is licensed under the XYZ License - see the LICENSE file for details.
