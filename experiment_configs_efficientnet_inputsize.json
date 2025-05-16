@@ -1,0 +1,25 @@
+{
+  "base_config": {
+    "experiment_name": "AI_PDA",
+    "save_dir": "experiments",
+    "seed": 42,
+    "pretrained": true,
+    "data_dir": "data",
+    "epochs": 100,
+    "patience": 10,
+    "scheduler": null
+  },
+  "param_grid": {
+    "model": ["efficientnet_b0", "efficientnet_b1", "efficientnet_b1v2", "efficientnet_b2","efficientnet_b3", "efficientnet_b3_baseline", "efficientnet_b4", "efficientnet_b5", "efficientnet_b6", "efficientnet_b7", "efficientnet_v2_s", "efficientnet_v2_m", "efficientnet_v2_l"],
+    "input_size": [160, 192, 224, 256, 384, 448, 512],
+    "batch_size": [64],
+    "optimizer": ["adam"],
+    "lr": [0.001],
+    "weight_decay": [0.0],
+    "dropout_rate": [0.0],
+    "dropout_type": ["standard"],
+    "data_augmentation": ["basic"],
+    "activation": ["relu"],
+    "loss": ["cross_entropy"]
+  }
+}

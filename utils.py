@@ -19,7 +19,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
-
+from ordinal_metrics import (
+    plot_ordinal_confusion_matrix,
+    plot_error_distribution,
+)
 
 def set_seed(seed=42):
     """
@@ -37,6 +40,44 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def convert_to_serializable(obj):
+    """Convert NumPy arrays and other non-serializable objects to Python types."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()  # Convert array to a list
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_serializable(i) for i in obj]
+    else:
+        return obj  # Return as is if already serializable
+    
+
+def update_experiment_directory(model, save_dir='experiments'):
+    """
+    Update experiment directory based on model name.
+
+    Args:
+        model (str): Model name containing the prefix like 'resnet', 'efficientnet', etc.
+        save_dir (str): Base directory for saving experiments to be updated
+
+    Returns:
+        str: Updated save directory
+    """
+    model_prefixes = ['resnet', 'efficientnet', 'vgg', 'mobilenet', 'densenet',
+                      'squeezenet', 'regnet', 'resnext', 'convnext', 'vit', 'swin']
+
+    for prefix in model_prefixes:
+        if model.startswith(prefix):
+            return os.path.join(save_dir, prefix)
+
+    # If no prefix matches, default to 'other_models'
+    print(f"Model prefix '{model}' not recognized. Using 'other_models' directory.")
+    return os.path.join(save_dir, 'other_models')
+
 
 def get_optimizer(model, optimizer_name, learning_rate, weight_decay=0):
     """
@@ -52,10 +93,16 @@ def get_optimizer(model, optimizer_name, learning_rate, weight_decay=0):
         torch.optim.Optimizer: Optimizer
     """
     if optimizer_name.lower() == 'sgd':
+        print("Using SGD optimizer...")
+        # SGD optimizer with momentum and weight decay
         return optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
     elif optimizer_name.lower() == 'adam':
+        print("Using Adam optimizer...")
+        # Adam optimizer with weight decay
         return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     elif optimizer_name.lower() == 'adamw':
+        print("Using AdamW optimizer...")
+        # AdamW optimizer with weight decay
         return optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_name}")
@@ -76,10 +123,21 @@ def get_scheduler(optimizer, scheduler_name, num_epochs):
     if scheduler_name is None or scheduler_name.lower() == 'none':
         return None
     elif scheduler_name.lower() == 'step':
-        return lr_scheduler.StepLR(optimizer, step_size=num_epochs // 3, gamma=0.1)
+        print("Using StepLR scheduler...")
+        # StepLR scheduler with step size equal to one-fifth of the total epochs
+        # This will reduce the learning rate by a factor of 0.1 every 5 epochs
+        # This is a common practice to reduce the learning rate as training progresses
+        return lr_scheduler.StepLR(optimizer, step_size=num_epochs // 5, gamma=0.1)
     elif scheduler_name.lower() == 'cosine':
+        print("Using CosineAnnealingLR scheduler...")
+        # Cosine annealing scheduler with T_max equal to the number of epochs
+        # This will reset the learning rate to the initial value at the end of each cycle
         return lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
     elif scheduler_name.lower() == 'reduce_on_plateau':
+        print("Using ReduceLROnPlateau scheduler...")
+        # Reduce learning rate when a metric has stopped improving
+        # This is useful for fine-tuning and can help to escape local minima
+        # The scheduler will monitor the validation loss and reduce the learning rate by a factor of 0.1 if it doesn't improve for 5 epochs
         return lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5)
     else:
         raise ValueError(f"Unsupported scheduler: {scheduler_name}")
@@ -106,12 +164,15 @@ def get_loss_function(loss_name, class_weights=None):
         try:
             # Try using kornia's implementation
             from kornia.losses import FocalLoss
-            return FocalLoss(alpha=0.5, gamma=2.0, reduction='mean')
+            print("Using kornia's Focal Loss implementation...")
+            # Focal Loss parameters
+            return FocalLoss(alpha=0.5, gamma=5.0, reduction='mean')
         
         except ImportError:
             # Custom implementation of Focal Loss
+            print("Using custom Focal Loss implementation...")
             class FocalLoss(nn.Module):
-                def __init__(self, alpha=0.5, gamma=2.0, reduction='mean'):
+                def __init__(self, alpha=0.5, gamma=5.0, reduction='mean'):
                     super(FocalLoss, self).__init__()
                     self.alpha = alpha
                     self.gamma = gamma
@@ -149,7 +210,7 @@ class ExperimentTracker:
             config (dict): Configuration parameters
             save_dir (str): Directory to save results
         """
-        timestamp = datetime.now().strftime('%Y%m%d %H%M%S')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.experiment_id = f"{model_name}_{timestamp}"
         self.experiment_name = experiment_name
         self.model_name = model_name
@@ -178,6 +239,12 @@ class ExperimentTracker:
             'val_f1': [],
             'val_top1_error': [],
             'val_top2_error': [],
+            'weighted_ordinal_error': [],
+            'standard_top1_accuracy': [],
+            'standard_top2_accuracy': [],           
+            'ordinal_top1_accuracy': [],
+            'ordinal_top2_accuracy': [],
+            'standard_class_accuracy': [],
             'learning_rate': []
         }
         
@@ -192,7 +259,8 @@ class ExperimentTracker:
     
     def update_metrics(self, epoch, train_loss, train_acc, val_loss, val_acc, 
                        val_precision, val_recall, val_f1, val_top1_error, val_top2_error,
-                       learning_rate):
+                       weighted_ordinal_error, standard_top1_acc, standard_top2_acc, 
+                       ordinal_top1_acc, ordinal_top2_acc, standard_class_acc, learning_rate):
         """
         Update metrics history and determine if current model is best.
         
@@ -207,6 +275,12 @@ class ExperimentTracker:
             val_f1 (float): Validation F1 score
             val_top1_error (float): Validation top-1 error
             val_top2_error (float): Validation top-2 error
+            weighted_ordinal_error (float): Weighted ordinal error
+            standard_top1_acc (float): Standard top-1 accuracy
+            standard_top2_acc (float): Standard top-2 accuracy
+            ordinal_top1_acc (float): Ordinal top-1 accuracy
+            ordinal_top2_acc (float): Ordinal top-2 accuracy
+            standard_class_acc (float): Standard class accuracy
             learning_rate (float): Current learning rate
         
         Returns:
@@ -222,6 +296,12 @@ class ExperimentTracker:
         self.metrics_history['val_f1'].append(val_f1)
         self.metrics_history['val_top1_error'].append(val_top1_error)
         self.metrics_history['val_top2_error'].append(val_top2_error)
+        self.metrics_history['weighted_ordinal_error'].append(weighted_ordinal_error)
+        self.metrics_history['standard_top1_accuracy'].append(standard_top1_acc)
+        self.metrics_history['standard_top2_accuracy'].append(standard_top2_acc)
+        self.metrics_history['ordinal_top1_accuracy'].append(ordinal_top1_acc)
+        self.metrics_history['ordinal_top2_accuracy'].append(ordinal_top2_acc)
+        self.metrics_history['standard_class_accuracy'].append(standard_class_acc)
         self.metrics_history['learning_rate'].append(learning_rate)
         
         # Log to TensorBoard
@@ -234,21 +314,40 @@ class ExperimentTracker:
         self.writer.add_scalar('F1/val', val_f1, epoch)
         self.writer.add_scalar('Error/top1', val_top1_error, epoch)
         self.writer.add_scalar('Error/top2', val_top2_error, epoch)
+        self.writer.add_scalar('Weighted/OrdinalError', weighted_ordinal_error, epoch)
+        self.writer.add_scalar('Standard/Top1Acc', standard_top1_acc, epoch)
+        self.writer.add_scalar('Standard/Top2Acc', standard_top2_acc, epoch)
+        self.writer.add_scalar('Ordinal/Top1Acc', ordinal_top1_acc, epoch)
+        self.writer.add_scalar('Ordinal/Top2Acc', ordinal_top2_acc, epoch)
+        if isinstance(standard_class_acc, dict):
+            # Log each class accuracy separately
+            for class_name, acc in standard_class_acc.items():
+                self.writer.add_scalar(f'Standard/ClassAcc/{class_name}', acc, epoch)
+        else:
+          # If it's a single value (unlikely based on the error), log it normally
+            self.writer.add_scalar('Standard/ClassAcc', standard_class_acc, epoch)
         self.writer.add_scalar('LR', learning_rate, epoch)
-        
+
+
         # Check if this is the best model so far
         if val_f1 > self.best_metrics['val_f1']:
             self.best_metrics = {
                 'epoch': epoch,
                 'train_loss': train_loss,
-                'train_acc': train_acc,
+                'train_accuracy': train_acc,
                 'val_loss': val_loss,
-                'val_acc': val_acc,
+                'val_accuracy': val_acc,
                 'val_precision': val_precision,
                 'val_recall': val_recall,
                 'val_f1': val_f1,
                 'val_top1_error': val_top1_error,
-                'val_top2_error': val_top2_error
+                'val_top2_error': val_top2_error,
+                'weighted_ordinal_error': weighted_ordinal_error,
+                'standard_top1_accuracy': standard_top1_acc,
+                'standard_top2_accuracy': standard_top2_acc,
+                'ordinal_top1_accuracy': ordinal_top1_acc,
+                'ordinal_top2_accuracy': ordinal_top2_acc,
+                'standard_class_accuracy': standard_class_acc,
             }
             return True  # Return True if this is the best model
         return False
@@ -280,6 +379,7 @@ class ExperimentTracker:
     
     def plot_metrics(self):
         """Plot training and validation metrics."""
+        # print("Plotting metrics...")
         epochs = range(1, len(self.metrics_history['train_loss']) + 1)
         
         # 1. Loss and Accuracy curves
@@ -327,6 +427,18 @@ class ExperimentTracker:
         plt.tight_layout()
         plt.savefig(os.path.join(self.save_dir, 'plots', 'top_k_error.png'))
         plt.close()
+
+        #  Ordinal Top-1 and Top-2 Accuracy
+        plt.figure(figsize=(10, 5))
+        plt.plot(epochs, self.metrics_history['ordinal_top1_accuracy'], 'b-', label='Ordinal Top-1 Accuracy')
+        plt.plot(epochs, self.metrics_history['ordinal_top2_accuracy'], 'r-', label='Ordinal Top-2 Accuracy')
+        plt.title('Ordinal Top-1 and Top-2 Accuracy')
+        plt.xlabel('Epochs')    
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.save_dir, 'plots', 'ordinal_top_k_accuracy.png'))
+        plt.close()
         
         # 4. Learning rate
         plt.figure(figsize=(10, 5))
@@ -356,18 +468,45 @@ class ExperimentTracker:
         plt.savefig(os.path.join(self.save_dir, 'plots', 'confusion_matrix.png'))
         plt.close()
     
+    def plot_ordinal_metrics(self, metric_dict, class_names):
+        """
+        Plot ordinal metrics visualizations.
+        
+        Args:
+            metric_dict (dict): Dictionary containing ordinal metrics
+            class_names (list): Names of classes
+        """
+        plots_dir = os.path.join(self.save_dir, 'plots')
+        
+        # Plot ordinal confusion matrix
+        plot_ordinal_confusion_matrix(
+            conf_matrix=metric_dict['confusion_matrix'],
+            class_names=class_names,
+            output_path=os.path.join(plots_dir, f'ordinal_confusion_matrix.png')
+        )
+        
+        # Plot error distribution
+        plot_error_distribution(
+            metric_dict,
+            output_path=os.path.join(plots_dir, f'ordinal_error_distribution.png')
+        )
+
     def save_metrics_to_csv(self):
         """Save metrics history to CSV."""
         df = pd.DataFrame(self.metrics_history)
         df.index = df.index + 1  # Start epochs at 1
         df.index.name = 'epoch'
-        df.to_csv(os.path.join(self.save_dir, 'metrics_history.csv'))
-        
+        df.to_csv(os.path.join(self.save_dir, 'metrics_history.csv')) 
+        print(f"Metrics history saved to {os.path.join(self.save_dir, 'metrics_history.csv')}")
+
         # Save best metrics separately
-        with open(os.path.join(self.save_dir, 'best_metrics.json'), 'w') as f:
+        with open(os.path.join(self.save_dir, 'best_metrics_val.json'), 'w') as f:
             json.dump(self.best_metrics, f, indent=2)
+            print(f"Best metrics saved to {os.path.join(self.save_dir, 'best_metrics_val.json')}")
     
-    def save_experiment_summary(self, model, params_count, flops, inference_time, conf_matrix, class_names, classification_report_dict):
+    def save_experiment_summary(
+            self, model, params_count, flops, inference_time, class_names, val_metrics, test_metrics
+        ):
         """
         Save comprehensive experiment summary.
         
@@ -376,37 +515,51 @@ class ExperimentTracker:
             params_count (int): Number of parameters
             flops (int): Number of FLOPs
             inference_time (float): Inference time (ms)
-            conf_matrix (numpy.ndarray): Confusion matrix
             class_names (list): List of class names
-            classification_report_dict (dict): Classification report
+            val_metrics (dict): Dictionary of metrics containing  accuracy, precision, recall, F1 score, etc., from validation dataset
+            test_metrics (dict): Dictionary of metrics containing accuracy, precision, recall, F1 score, etc., from test dataset
         """
+        # Ensure the save directory exists
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
+
         # Create summary dictionary
         summary = {
             'experiment_id': self.experiment_id,
             'experiment_name': self.experiment_name,
             'model_name': self.model_name,
             'config': self.config,
-            'best_metrics': self.best_metrics,
             'model_stats': {
-                'params_count': int(params_count),
-                'flops': int(flops),
+                'params_count_(M)': int(params_count) / 1e6,  # Convert to millions
+                'gflops': int(flops) / 1e9,  # Convert to Giga FLOPs
                 'inference_time_ms': float(inference_time),
-                'model_size_mb': os.path.getsize(os.path.join(self.save_dir, 'checkpoints', 'best_model.pth')) / (1024 * 1024)
+                'model_size_mb': os.path.getsize(os.path.join(self.save_dir, 'checkpoints', 'best_model.pth')) / (1024 * 1024) if os.path.exists(os.path.join(self.save_dir, 'checkpoints', 'best_model.pth')) else None,
             },
-            'classification_report': classification_report_dict
+            'best_metrics(val)': convert_to_serializable(val_metrics),
+            'best_metrics(test)': convert_to_serializable(test_metrics)
         }
-        
+
+        # # Quick conversion of NumPy values
+        # summary = json.loads(json.dumps(summary, default=str))
+
         # Save the summary to JSON
         with open(os.path.join(self.save_dir, 'experiment_summary.json'), 'w') as f:
             json.dump(summary, f, indent=2)
         
         # Plot confusion matrix
-        self.plot_confusion_matrix(conf_matrix, class_names)
-        
+        print("Plotting confusion matrix...")
+        self.plot_confusion_matrix(test_metrics['confusion_matrix'], class_names)
+
+        # Plot ordinal metrics
+        print("Plotting ordinal metrics...")
+        self.plot_ordinal_metrics(test_metrics, class_names)
+
         # Save other metrics plots
+        print("Plotting other metrics...")
         self.plot_metrics()
-        
+
         # Save metrics to CSV
+        print("Saving metrics to CSV...")
         self.save_metrics_to_csv()
         
         # Save model architecture summary as text
@@ -425,8 +578,6 @@ class ExperimentTracker:
                 
                 # Restore stdout
                 sys.stdout = old_stdout
+                print("Model summary saved to model_summary.txt")
         except ImportError:
             print("torchsummary not installed. Install with 'pip install torchsummary' for detailed model summaries.")
-        
-        print(f"Experiment summary saved to {self.save_dir}")
-        

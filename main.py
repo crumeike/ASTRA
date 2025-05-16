@@ -15,7 +15,7 @@ from data_utils import get_data_loaders
 from models import create_model
 from training import train_model, validate_model
 from metrics import calculate_flops, measure_inference_time
-from utils import set_seed, ExperimentTracker, get_optimizer, get_scheduler, get_loss_function
+from utils import set_seed, ExperimentTracker, get_optimizer, get_scheduler, get_loss_function, update_experiment_directory
 
 def parse_args():
     """Parse command line arguments."""
@@ -30,6 +30,9 @@ def parse_args():
     parser.add_argument('--model', type=str, default='resnet50', help='Model architecture')
     parser.add_argument('--pretrained', action='store_true', help='Use pretrained weights')
     parser.add_argument('--activation', type=str, default='relu', help='Activation function')
+    parser.add_argument('--dropout_rate', type=float, default=0.0, help='Dropout probability (0.0 to disable)')
+    parser.add_argument('--dropout_type', type=str, default='standard', 
+                        choices=['standard', 'spatial', 'feature'], help='Type of dropout to apply')
     
     # Data settings
     parser.add_argument('--data_dir', type=str, required=True, help='Data directory')
@@ -46,8 +49,12 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=0.0, help='Weight decay')
     parser.add_argument('--scheduler', type=str, default=None, 
-                        choices=[None, 'step', 'cosine', 'reduce_on_plateau'])
+                        choices=[None, 'None', 'step', 'cosine', 'reduce_on_plateau'])
     parser.add_argument('--loss', type=str, default='cross_entropy', choices=['cross_entropy', 'focal'])
+
+    # Evaluation settings
+    parser.add_argument('--use_ordinal_metrics', action='store_true', 
+                        help='Use ordinal metrics for evaluation')
     
     # Miscellaneous
     parser.add_argument('--device', type=str, default=None, help='Device (cuda or cpu)')
@@ -83,12 +90,14 @@ def main():
     print(f"Number of classes: {num_classes}")
     print(f"Class names: {class_names}")
     
-    # Create model
+    # Create model with dropout
     model = create_model(
         model_name=args.model,
         num_classes=num_classes,
         pretrained=args.pretrained,
-        activation=args.activation
+        activation=args.activation,
+        dropout_rate=args.dropout_rate,
+        dropout_type=args.dropout_type
     )
     model.to(device)
     
@@ -98,8 +107,10 @@ def main():
     inference_time = measure_inference_time(model, input_size=input_size, device=device)
     
     print(f"Model parameters: {params:,}")
-    print(f"Model FLOPs: {flops:,}")
+    print(f"Model GFLOPs: {flops / 1e9:.2f}")
+    print(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e6:.2f} MB")
     print(f"Inference time: {inference_time:.2f} ms")
+    print(f"Dropout rate: {args.dropout_rate}, Type: {args.dropout_type}")
     
     # Create optimizer, loss function, and scheduler
     optimizer = get_optimizer(model, args.optimizer, args.lr, args.weight_decay)
@@ -111,8 +122,12 @@ def main():
     config['num_classes'] = num_classes
     config['class_names'] = class_names
     config['input_resolution'] = args.input_size
-    config['date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    config['date'] = datetime.now().strftime('%Y-%m-%d')
 
+    # Update experiment directory based on model name prefix
+    args.save_dir = update_experiment_directory(args.model, args.save_dir)
+    print(f"Saving each {args.model} experiment to {args.save_dir}")
+    
     # Create experiment tracker
     experiment_tracker = ExperimentTracker(
         experiment_name=args.experiment_name,
@@ -120,37 +135,51 @@ def main():
         config=config,
         save_dir=args.save_dir
     )
-    
-    # Train model
-    best_model, optimizer, val_conf_matrix, val_class_report = train_model(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        criterion=criterion,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        device=device,
-        num_classes=num_classes,
-        num_epochs=args.epochs,
-        patience=args.patience,
-        experiment_tracker=experiment_tracker
-    )
 
-    #Validation metrics
-    print(f"{'='*50}")
-    print(f"Validation metrics:")
-    print(f"Validation Matrix: {val_conf_matrix}")
-    print(f"Validation Class Report: {val_class_report}")
+    if 'baseline' not in args.model:
+        print(f"Training {args.model} for {args.epochs} epochs...")
+        # Train model
+        best_model, opimizer, val_results, best_epoch = train_model(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            criterion=criterion,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            device=device,
+            num_classes=num_classes,
+            num_epochs=args.epochs,
+            patience=args.patience,
+            experiment_tracker=experiment_tracker
+        )
 
-    # Load best model for evaluation
-    print(f"{'='*50}")
-    print(f"Loading best model for evaluation...")
-    best_model_path = f"{experiment_tracker.save_dir}/checkpoints/best_model.pth"
-    checkpoint = torch.load(best_model_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    best_model.eval()
-    best_model.load_state_dict(torch.load(experiment_tracker.best_model_path))
+        print(f"Best validation accuracy: {100 * val_results['val_acc']:.2f}%")
+        print(f"Best validation loss: {val_results['val_loss']:.4f}")
+        val_results['best_epoch'] = best_epoch
+    else:
+        print(f"Zero-shot evaluation for {args.model} model. Skipping training.")
+        best_model = model
+
+    # #Save trained model report if experiment tracker is used
+    # try:
+    #     if experiment_tracker is not None:  
+    #         print(f"Saving trained model report based on valid dataset...")
+    #         with open(os.path.join(experiment_tracker.save_dir, 'training_phase_report.json'), 'w') as f:
+    #             best_metrics['best_epoch'] = best_epoch
+    #             best_metrics['model_stats'] = {
+    #                 'model_name': args.model, 
+    #                 'flops': flops, 
+    #                 'params': params,
+    #                 'inference_time': inference_time,
+    #                 'model_size': best_model.state_dict().get('model_size', None)
+    #             }
+    #             # Convert metrics to serializable format before saving
+    #             serializable_metrics = convert_to_serializable(best_metrics)
+    #             json.dump(serializable_metrics, f, indent=4)    
+    #     else:
+    #         print(f"Experiment tracker not provided. Skipping model report saving.")
+    # except Exception as e:
+    #     print(f"Error saving model report: {e}")
     
     try:
         if test_loader is not None:
@@ -162,31 +191,41 @@ def main():
                 device=device,
                 num_classes=num_classes
             )
-            val_loss, val_acc, val_precision, val_recall, val_f1, top1_error, top2_error, conf_matrix, class_report = test_results.values()
-            print(f"{'='*50}")
+
+            print(f"\n{'='*50}")
             print(f"Test results: ")  
-            print(f"Loss: {val_loss:.4f} || Accuracy: {100 * val_acc:.4f}%")
-            print(f"Precision: {val_precision:.4f}")
-            print(f"Recall: {val_recall:.4f}")
-            print(f"F1 Score: {val_f1:.4f}")
-            print(f"Top-1 Error: {top1_error:.4f}")
-            print(f"Top-2 Error: {top2_error:.4f}")
+            print(f"Loss: {test_results['val_loss']:.4f} || Accuracy: {100 * test_results['val_acc']:.2f}%")
+            print(f"Precision: {test_results['val_precision']:.4f}")
+            print(f"Recall: {test_results['val_recall']:.4f}")
+            print(f"F1 Score: {test_results['val_f1']:.4f}")
+            print(f"Top-1 Error: {test_results['val_top1_error']:.4f}")
+            print(f"Top-2 Error: {test_results['val_top2_error']:.4f}")
+            print(f"Weighted Ordinal Error: {test_results['weighted_ordinal_error']:.4f}")
+            print(f"Standard Top-1 Accuracy: {100 * test_results['standard_top1_accuracy']:.2f}%")
+            print(f"Standard Top-2 Accuracy: {100 * test_results['standard_top2_accuracy']:.2f}%")
+            print(f"Ordinal Top-1 Accuracy: {100 * test_results['ordinal_top1_accuracy']:.2f}%")
+            print(f"Ordinal Top-2 Accuracy: {100 * test_results['ordinal_top2_accuracy']:.2f}%")
+            for class_name, acc in test_results['standard_class_accuracy'].items():
+                print(f"{class_name} Accuracy: {100 * acc:.2f}%")
         else:
             print("No test loader provided. Skipping validation.")
     except Exception as e:
         print(f"Error during validation: {e}")
 
+    if 'baseline' in args.model:
+        val_results = test_results
+
     # Save experiment summary
-    print(f"{'='*50}")
+    print(f"\n{'='*50}")
     print(f"Saving experiment summary...")
     experiment_tracker.save_experiment_summary(
         model=best_model,
         params_count=params,
         flops=flops,
         inference_time=inference_time,
-        conf_matrix=conf_matrix,
         class_names=class_names,
-        classification_report_dict=class_report
+        val_metrics=val_results,
+        test_metrics=test_results,
     )
     
     print(f"Experiment completed. Results saved to {experiment_tracker.save_dir}")

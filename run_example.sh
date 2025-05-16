@@ -2,7 +2,7 @@
 
 # Example script to run a single experiment with the framework
 
-# Set data directory (replace with your actual data path)
+# Set data directory (replace with actual data path)
 DATA_DIR="./data/tornado_damage"
 
 # Create experiment name with timestamp

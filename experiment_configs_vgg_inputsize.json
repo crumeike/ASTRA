@@ -1,0 +1,25 @@
+{
+  "base_config": {
+    "experiment_name": "AI_PDA",
+    "save_dir": "experiments",
+    "seed": 42,
+    "pretrained": true,
+    "data_dir": "data",
+    "epochs": 100,
+    "patience": 10,
+    "scheduler": null
+  },
+  "param_grid": {
+    "model": ["vgg11", "vgg11_bn", "vgg13", "vgg13_bn", "vgg16", "vgg16_baseline", "vgg16_bn", "vgg19", "vgg19_bn"],
+    "input_size": [160, 192, 224, 256, 384, 448, 512],
+    "batch_size": [64],
+    "optimizer": ["adam"],
+    "lr": [0.001],
+    "weight_decay": [0.0],
+    "dropout_rate": [0.0],
+    "dropout_type": ["standard"],
+    "data_augmentation": ["basic"],
+    "activation": ["relu"],
+    "loss": ["cross_entropy"]
+  }
+}

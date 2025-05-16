@@ -1,0 +1,25 @@
+{
+  "base_config": {
+    "experiment_name": "AI_PDA",
+    "save_dir": "experiments",
+    "seed": 42,
+    "pretrained": true,
+    "data_dir": "data",
+    "epochs": 100,
+    "patience": 10,
+    "scheduler": null
+  },
+  "param_grid": {
+    "model": ["resnet18", "resnet34","resnet50", "resnet50_baseline", "resnet50v2", "resnet101", "resnet101v2", "resnet152", "resnet152v2"],
+    "input_size": [160, 192, 224, 256, 384, 448, 512],
+    "batch_size": [64],
+    "optimizer": ["adam"],
+    "lr": [0.001],
+    "weight_decay": [0.0],
+    "dropout_rate": [0.0],
+    "dropout_type": ["standard"],
+    "data_augmentation": ["basic"],
+    "activation": ["relu"],
+    "loss": ["cross_entropy"]
+  }
+}

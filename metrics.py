@@ -38,7 +38,7 @@ def calculate_flops(model, input_size=(3, 224, 224), device="cuda"):
         return flops, params
 
 
-def measure_inference_time(model, input_size=(3, 224, 224), device="cuda", num_runs=100):
+def measure_inference_time(model, input_size=(3, 224, 224), device="cuda", warmup=10, num_runs=100):
     """
     Measure inference time for a PyTorch model.
     
@@ -52,20 +52,28 @@ def measure_inference_time(model, input_size=(3, 224, 224), device="cuda", num_r
         float: Average inference time in milliseconds
     """
     dummy_input = torch.randn(1, *input_size).to(device)
+
+    # Disable profiling hooks if they exist
+    for m in model.modules():
+        if hasattr(m, '_forward_hooks'):
+            m._forward_hooks.clear()
+
+    # Warmup runs
+    with torch.no_grad():
+        for _ in range(warmup):
+            _ = model(dummy_input)
     
-    # Warm-up runs
-    for _ in range(10):
-        _ = model(dummy_input)
-    
-    # Measure timing
+    # Timed runs
+    torch.cuda.synchronize()
     start_time = time.time()
-    for _ in range(num_runs):
-        _ = model(dummy_input)
-    total_time = time.time() - start_time
+    with torch.no_grad():
+        for _ in range(num_runs):
+            _ = model(dummy_input)
+    torch.cuda.synchronize()
+    end_time = time.time()
     
-    # Average time in milliseconds
-    avg_time_ms = (total_time / num_runs) * 1000
-    return avg_time_ms
+    inference_time = (end_time - start_time) / num_runs
+    return inference_time * 1000  # Convert to milliseconds
 
 
 def calculate_top_k_error(outputs, targets, k=1):

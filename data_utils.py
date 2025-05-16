@@ -20,7 +20,7 @@ class TornadoDamageDataset(Dataset):
         Args:
             root_dir (str): Root directory containing data folders
             transform (callable, optional): Transform to be applied to images
-            split (str): Dataset split ('train', 'val', or 'test')
+            split (str): Dataset split ('train', 'valid', or 'test')
         """
         self.root_dir = os.path.join(root_dir, split)
         self.transform = transform
@@ -96,10 +96,13 @@ def get_data_transforms(input_size, data_augmentation='basic'):
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
             transforms.RandomRotation(30),
+            transforms.RandomCrop((input_size, input_size), padding=4),
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+            transforms.RandomPerspective(distortion_scale=0.5, p=0.5),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            transforms.RandomErasing(p=0.2)
+            transforms.RandomErasing(p=0.4, scale=(0.02, 0.33), ratio=(0.3, 3.3), value=0, inplace=True)
         ])
     
     else:
@@ -107,11 +110,11 @@ def get_data_transforms(input_size, data_augmentation='basic'):
     
     return {
         'train': train_transform,
-        'val': val_transform
+        'valid': val_transform
     }
 
 
-def get_data_loaders(data_dir, input_size, batch_size, data_augmentation='basic', num_workers=4):
+def get_data_loaders(data_dir, input_size, batch_size, data_augmentation='basic', num_workers=0):
     """
     Create data loaders for training and validation.
     
@@ -137,14 +140,14 @@ def get_data_loaders(data_dir, input_size, batch_size, data_augmentation='basic'
     
     val_dataset = TornadoDamageDataset(
         root_dir=data_dir, 
-        transform=transforms_dict['val'], 
-        split='val'
+        transform=transforms_dict['valid'], 
+        split='valid'
     )
 
     test_dataset = TornadoDamageDataset(
         root_dir=data_dir, 
-        transform=transforms_dict['val'], 
-        split='val'
+        transform=transforms_dict['valid'], 
+        split='test'
     )
 
     # Create data loaders
