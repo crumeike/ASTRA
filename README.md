@@ -309,4 +309,4 @@ Robinson Umeike, crumeike@crimson.ua.edu
  
 ## License
  
-Released under the MIT License. See the `LICENSE` file for details.
+Released under the MIT License. 
