@@ -3,10 +3,6 @@
 A PyTorch framework for evaluating and optimizing deep learning models for
 post-tornado building damage recognition.
  
-Official repository for the paper **"ASTRA: Architectural inSights for
-post-ToRnado damAge recognition,"** published in *Expert Systems with
-Applications* (Elsevier), 2026.
- 
 - Paper (DOI): https://doi.org/10.1016/j.eswa.2026.133915
   
 ## Status
