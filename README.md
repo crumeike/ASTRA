@@ -286,7 +286,7 @@ This resumable design ensures that no computational resources are wasted on repe
 
 ## Citation
 
-If you use this framework or code in your research, please cite:
+If you use this framework or code, please cite:
 
 ```bibtex
 @article{umeike2026astra,
